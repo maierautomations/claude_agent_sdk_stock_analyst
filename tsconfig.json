@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    // Module settings - ESM
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    
+    // Strict type checking
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    // Output settings
+    "outDir": "./dist",
+    "rootDir": "./src",
+    
+    // Node.js settings
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    
+    // Type definitions
+    "types": ["node"],
+    "lib": ["ES2022"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+
