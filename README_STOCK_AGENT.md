@@ -2,15 +2,21 @@
 
 AI-powered stock analysis agent built with Claude Agent SDK and Alpha Vantage API.
 
-## 🎯 Current Status: Phase 1 MVP Complete ✅
+## 🎯 Current Status: Phase 2 Core Subagents Complete ✅
 
-**Phase 1 Deliverables:**
-- ✅ Alpha Vantage API client with caching (5min TTL) and rate limiting (5 calls/min)
-- ✅ Finance Tools MCP server with `get_stock_price` tool
-- ✅ Main agent with cost tracking
-- ✅ Interactive CLI interface
+**Phase 2 Deliverables:**
+- ✅ Extended Alpha Vantage client with financial metrics & technical indicators
+- ✅ Finance Tools MCP server with 3 tools:
+  - `get_stock_price` - Real-time quotes
+  - `get_financial_metrics` - P/E, market cap, EPS, margins, ROE, etc.
+  - `calculate_technical_indicators` - SMA(50/200), RSI, MACD
+- ✅ **Subagent delegation:**
+  - `fundamental-analyst` - Expert in company fundamentals & valuation
+  - `technical-analyst` - Expert in price trends & technical indicators
+- ✅ Main coordinating agent with intelligent subagent delegation
+- ✅ Permission bypass for automatic tool calls
 
-**What works:** Ask "What is the price of AAPL?" and get a real-time response!
+**What works:** Ask "Should I buy AAPL?" and the agent delegates to both fundamental and technical analysts for comprehensive analysis!
 
 ---
 
@@ -50,31 +56,44 @@ npm run type-check
 
 ### 4. Example Usage
 
+**Basic Query:**
 ```
-🤖 Stock Analyst Agent v0.1.0
+🤖 Stock Analyst Agent v0.2.0
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Ask me about any US stock! (Type "exit" to quit)
+✨ New: Subagent delegation for fundamental & technical analysis
 
 💬 You: What is the price of AAPL?
 
 🤔 Analyzing...
 
 📈 **AAPL** - Stock Quote
+**Price:** $247.66 | **Change:** +$2.39 (+0.97%)
+...
 
-**Price:** $247.66
-**Change:** +$2.39 (+0.97%)
+💰 Total cost: $0.0042
+```
 
-**Daily Range:**
-  - Open: $248.76
-  - High: $249.45
-  - Low: $246.58
-  - Previous Close: $245.27
+**Advanced Query with Subagents:**
+```
+💬 You: Should I buy AAPL? Give me fundamental and technical analysis.
 
-**Volume:** 35,445,621
-**Last Updated:** 2025-01-14
+🤔 Analyzing...
 
-💵 Query cost: $0.0042
+[Agent delegates to fundamental-analyst]
+📊 **Apple Inc. (AAPL)** - Financial Metrics
+- Market Cap: $3.85T
+- P/E Ratio: 31.5
+- ROE: 147.4%
+...
+
+[Agent delegates to technical-analyst]
+📈 **AAPL** - Technical Indicators
+- RSI(14): 58.3 (Neutral)
+- SMA(50): $235.12
+- MACD: Bullish 📈
+...
+
+💰 Total cost: $0.0156
 ```
 
 ---
@@ -108,31 +127,55 @@ claude_agent_sdk/
 ### Alpha Vantage Client
 
 **Features:**
-- 5-minute in-memory cache (reduces API calls)
+- 3 endpoints: GLOBAL_QUOTE, OVERVIEW, SMA/RSI/MACD
+- 5-minute in-memory cache (separate caches per endpoint)
 - Rate limiting: 12s delay between calls (respects 5 calls/min limit)
 - Retry logic with exponential backoff (3 retries)
-- Type-safe responses with Zod schemas
+- Type-safe responses with comprehensive TypeScript types
 
 **File:** [src/tools/api/alpha-vantage.ts](src/tools/api/alpha-vantage.ts)
 
-### Finance Tools MCP Server
+### Finance Tools MCP Server (v0.2.0)
 
-**Tool:** `get_stock_price`
-- **Input:** Stock ticker symbol (e.g., AAPL, TSLA, MSFT)
-- **Output:** Formatted quote with price, change, volume, daily range
-- **Format:** Markdown-formatted text with emojis for visual clarity
+**3 Tools:**
+
+1. **`get_stock_price`**
+   - Real-time quotes with price, change%, volume, daily range
+
+2. **`get_financial_metrics`** (NEW)
+   - Valuation: Market cap, P/E, PEG, Beta
+   - Profitability: EPS, ROE, ROA, profit margins
+   - Performance: 52-week high/low, analyst targets
+
+3. **`calculate_technical_indicators`** (NEW)
+   - Moving averages: SMA(50), SMA(200)
+   - Momentum: RSI(14) with overbought/oversold signals
+   - Trend: MACD with bullish/bearish signals
 
 **File:** [src/tools/finance-tools.ts](src/tools/finance-tools.ts)
 
-### Main Agent
+### Subagent System
 
-**Features:**
-- Streaming query support (required for MCP tools)
-- Real-time cost tracking ($0.003/1K input tokens, $0.015/1K output tokens)
-- Automatic message aggregation
-- Error handling with graceful degradation
+**Coordinating Agent:**
+- Delegates to specialized subagents based on query type
+- Synthesizes insights from multiple analysts
+- Provides comprehensive, actionable recommendations
 
-**File:** [src/agent/main-agent.ts](src/agent/main-agent.ts)
+**2 Specialist Subagents:**
+
+1. **fundamental-analyst**
+   - Expert in company fundamentals & valuation
+   - Tools: get_financial_metrics, get_stock_price
+   - Focus: P/E ratios, financial health, growth potential
+
+2. **technical-analyst**
+   - Expert in price trends & technical indicators
+   - Tools: calculate_technical_indicators, get_stock_price
+   - Focus: RSI, MACD, moving averages, trading signals
+
+**Files:**
+- [src/agent/main-agent.ts](src/agent/main-agent.ts) - Coordinator
+- [src/agent/subagents.ts](src/agent/subagents.ts) - Subagent configs
 
 ---
 
