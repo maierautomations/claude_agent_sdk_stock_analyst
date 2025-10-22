@@ -2,13 +2,25 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { financeToolsServer } from '../tools/finance-tools.js';
 import { subagentConfigs } from './subagents.js';
+import { CostTracker, type UsageReport } from '../utils/cost-tracker.js';
 
 /**
  * Stock Analyst Agent v0.3
  * Main coordinating agent that delegates to specialized subagents
+ *
+ * Features:
+ * - Delegates to 4 specialized analyst subagents
+ * - Enhanced cost tracking with step-by-step breakdown
+ * - Session management for conversation continuity
  */
 export class StockAnalystAgent {
   private totalCost = 0;
+  private costTracker: CostTracker;
+  private sessionId?: string;
+
+  constructor() {
+    this.costTracker = new CostTracker();
+  }
 
   /**
    * Analyzes a stock based on user prompt
@@ -17,6 +29,7 @@ export class StockAnalystAgent {
   async analyze(userPrompt: string): Promise<string> {
     // Reset cost tracking for this query
     this.totalCost = 0;
+    this.costTracker.reset();
 
     let finalResponse = '';
     let hasSeenAssistantMessage = false;
@@ -25,11 +38,15 @@ export class StockAnalystAgent {
       const result = query({
         prompt: userPrompt,
         options: {
+          // Resume previous session if available
+          ...(this.sessionId ? { resume: this.sessionId } : {}),
+
           mcpServers: {
             "finance-tools": financeToolsServer
           },
           agents: subagentConfigs,
           permissionMode: 'bypassPermissions',  // Auto-approve finance tools
+
           systemPrompt: {
             type: 'preset',
             preset: 'claude_code',
@@ -60,6 +77,14 @@ perspectives (fundamental + technical + sentiment + risk) to provide well-rounde
 
       // Iterate through the async generator to get all messages
       for await (const message of result) {
+        // Capture session ID from system init message
+        if (message.type === 'system' && message.subtype === 'init') {
+          this.sessionId = message.session_id;
+        }
+
+        // Track costs for detailed reporting
+        this.costTracker.processMessage(message);
+
         // Capture final result with cost
         if (message.type === 'result') {
           this.totalCost = message.total_cost_usd;
@@ -102,5 +127,57 @@ perspectives (fundamental + technical + sentiment + risk) to provide well-rounde
    */
   getLastQueryCost(): number {
     return this.totalCost;
+  }
+
+  /**
+   * Gets detailed usage report with step-by-step breakdown
+   *
+   * Includes:
+   * - Total steps (message batches)
+   * - Total input/output tokens
+   * - Cache usage tokens
+   * - Cost breakdown by step
+   * - Total cost
+   *
+   * @returns Comprehensive usage report
+   */
+  getDetailedUsage(): UsageReport {
+    return this.costTracker.getDetailedUsage();
+  }
+
+  /**
+   * Gets a formatted summary string for display
+   *
+   * @returns Human-readable usage summary with breakdown
+   */
+  getFormattedCostSummary(): string {
+    return this.costTracker.getFormattedSummary();
+  }
+
+  /**
+   * Gets the current session ID
+   *
+   * @returns Session ID if available, undefined otherwise
+   */
+  getSessionId(): string | undefined {
+    return this.sessionId;
+  }
+
+  /**
+   * Clears the current session
+   *
+   * Use this to start a fresh conversation without context
+   */
+  clearSession(): void {
+    this.sessionId = undefined;
+  }
+
+  /**
+   * Checks if the agent has an active session
+   *
+   * @returns True if session exists, false otherwise
+   */
+  hasSession(): boolean {
+    return this.sessionId !== undefined;
   }
 }
