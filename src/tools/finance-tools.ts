@@ -1,7 +1,13 @@
 // MCP Finance Tools Server
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { fetchStockQuote, fetchFinancialMetrics, fetchTechnicalIndicators } from './api/alpha-vantage.js';
+import {
+  fetchStockQuote,
+  fetchFinancialMetrics,
+  fetchTechnicalIndicators,
+  fetchNewsSentiment,
+  compareStocks
+} from './api/alpha-vantage.js';
 
 /**
  * Finance Tools MCP Server
@@ -9,7 +15,7 @@ import { fetchStockQuote, fetchFinancialMetrics, fetchTechnicalIndicators } from
  */
 export const financeToolsServer = createSdkMcpServer({
   name: "finance-tools",
-  version: "0.2.0",
+  version: "0.3.0",
   tools: [
     tool(
       "get_stock_price",
@@ -181,6 +187,151 @@ export const financeToolsServer = createSdkMcpServer({
             content: [{
               type: "text" as const,
               text: `❌ Error calculating technical indicators: ${errorMessage}`
+            }],
+            isError: true
+          };
+        }
+      }
+    ),
+
+    tool(
+      "analyze_news_sentiment",
+      "Fetches recent news articles and analyzes sentiment for a stock. Returns news headlines, sources, and overall sentiment score.",
+      {
+        symbol: z.string().describe("Stock ticker symbol (e.g., AAPL, TSLA)"),
+        limit: z.number().min(1).max(20).default(10).describe("Number of articles to fetch (default: 10)")
+      },
+      async (args) => {
+        try {
+          const sentiment = await fetchNewsSentiment(args.symbol, args.limit);
+
+          const sentimentEmoji = sentiment.overallSentiment === 'positive' ? '📈' :
+                                 sentiment.overallSentiment === 'negative' ? '📉' : '➡️';
+
+          let formattedResponse = `📰 **${sentiment.symbol}** - News Sentiment Analysis\n\n`;
+          formattedResponse += `**Overall Sentiment:** ${sentimentEmoji} ${sentiment.overallSentiment.toUpperCase()}\n`;
+          formattedResponse += `**Sentiment Score:** ${sentiment.sentimentScore.toFixed(2)} (-1 to 1)\n`;
+          formattedResponse += `**Articles Analyzed:** ${sentiment.articleCount}\n\n`;
+
+          if (sentiment.articles.length > 0) {
+            formattedResponse += `**Recent Headlines:**\n\n`;
+            sentiment.articles.slice(0, 5).forEach((article, index) => {
+              const articleEmoji = article.sentiment === 'positive' ? '✅' :
+                                  article.sentiment === 'negative' ? '❌' : '➖';
+              formattedResponse += `${index + 1}. ${articleEmoji} **${article.title}**\n`;
+              formattedResponse += `   Source: ${article.source} | Published: ${new Date(article.publishedAt).toLocaleDateString()}\n`;
+              if (article.description) {
+                formattedResponse += `   ${article.description.substring(0, 100)}${article.description.length > 100 ? '...' : ''}\n`;
+              }
+              formattedResponse += `\n`;
+            });
+
+            if (sentiment.articles.length > 5) {
+              formattedResponse += `\n_...and ${sentiment.articles.length - 5} more articles_\n`;
+            }
+          } else {
+            formattedResponse += `No recent news articles found.\n`;
+          }
+
+          formattedResponse += `\n*Analysis timestamp: ${sentiment.timestamp}*`;
+
+          return {
+            content: [{
+              type: "text" as const,
+              text: formattedResponse
+            }]
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          return {
+            content: [{
+              type: "text" as const,
+              text: `❌ Error fetching news sentiment: ${errorMessage}`
+            }],
+            isError: true
+          };
+        }
+      }
+    ),
+
+    tool(
+      "compare_stocks",
+      "Compares multiple stocks side-by-side with key metrics. Useful for relative analysis and identifying the best investment among similar stocks.",
+      {
+        symbols: z.array(z.string()).min(2).max(5).describe("Array of stock ticker symbols to compare (2-5 stocks)")
+      },
+      async (args) => {
+        try {
+          const comparison = await compareStocks(args.symbols);
+
+          let formattedResponse = `📊 **Stock Comparison**\n\n`;
+          formattedResponse += `Comparing: ${comparison.symbols.join(', ')}\n\n`;
+
+          // Create comparison table header
+          formattedResponse += `| Metric | ${comparison.symbols.join(' | ')} |\n`;
+          formattedResponse += `|--------|${comparison.symbols.map(() => '--------').join('|')}|\n`;
+
+          // Price row
+          formattedResponse += `| **Price** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            return m ? `$${m.price.toFixed(2)}` : 'N/A';
+          }).join(' | ')} |\n`;
+
+          // Change % row
+          formattedResponse += `| **Change %** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            if (!m) return 'N/A';
+            const sign = m.changePercent >= 0 ? '+' : '';
+            return `${sign}${m.changePercent.toFixed(2)}%`;
+          }).join(' | ')} |\n`;
+
+          // Market Cap row
+          formattedResponse += `| **Market Cap** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            if (!m) return 'N/A';
+            if (m.marketCap >= 1e12) return `$${(m.marketCap / 1e12).toFixed(2)}T`;
+            if (m.marketCap >= 1e9) return `$${(m.marketCap / 1e9).toFixed(2)}B`;
+            return `$${(m.marketCap / 1e6).toFixed(2)}M`;
+          }).join(' | ')} |\n`;
+
+          // P/E Ratio row
+          formattedResponse += `| **P/E Ratio** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            return m?.peRatio ? m.peRatio.toFixed(2) : 'N/A';
+          }).join(' | ')} |\n`;
+
+          // EPS row
+          formattedResponse += `| **EPS** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            return m?.eps ? `$${m.eps.toFixed(2)}` : 'N/A';
+          }).join(' | ')} |\n`;
+
+          // Profit Margin row
+          formattedResponse += `| **Profit Margin** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            return m?.profitMargin ? `${m.profitMargin.toFixed(1)}%` : 'N/A';
+          }).join(' | ')} |\n`;
+
+          // Beta row
+          formattedResponse += `| **Beta** | ${comparison.symbols.map(s => {
+            const m = comparison.metrics[s];
+            return m?.beta ? m.beta.toFixed(2) : 'N/A';
+          }).join(' | ')} |\n`;
+
+          formattedResponse += `\n*Comparison timestamp: ${comparison.timestamp}*`;
+
+          return {
+            content: [{
+              type: "text" as const,
+              text: formattedResponse
+            }]
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          return {
+            content: [{
+              type: "text" as const,
+              text: `❌ Error comparing stocks: ${errorMessage}`
             }],
             isError: true
           };

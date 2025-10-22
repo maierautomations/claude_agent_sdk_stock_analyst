@@ -9,9 +9,10 @@ const rl = readline.createInterface({
 });
 
 async function main() {
-  console.log('🤖 Stock Analyst Agent v0.2.0');
+  console.log('🤖 Stock Analyst Agent v0.3.0');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-  console.log('✨ New: Subagent delegation for fundamental & technical analysis\n');
+  console.log('✨ New: 4 specialized analysts (fundamental, technical, sentiment, risk)\n');
+  console.log('📊 Tools: Stock quotes, financials, indicators, news, comparisons\n');
   console.log('Ask me about any US stock! (Type "exit" to quit)\n');
 
   // Verify API keys

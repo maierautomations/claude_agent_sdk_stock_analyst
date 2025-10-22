@@ -10,18 +10,26 @@ import type {
   AlphaVantageSMAResponse,
   AlphaVantageRSIResponse,
   AlphaVantageMACDResponse,
-  CachedData
+  CachedData,
+  NewsSentiment,
+  NewsAPIResponse,
+  NewsArticle,
+  StockComparison
 } from '../../types/stock-data.js';
 
 const API_KEY = process.env.ALPHA_VANTAGE_API_KEY;
+const NEWS_API_KEY = process.env.NEWS_API_KEY;
 const BASE_URL = 'https://www.alphavantage.co/query';
+const NEWS_API_URL = 'https://newsapi.org/v2';
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const NEWS_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes for news (less volatile)
 const RATE_LIMIT_DELAY_MS = 12000; // 12 seconds between calls (5 calls/min)
 
 // In-memory caches
 const quoteCache = new Map<string, CachedQuote>();
 const metricsCache = new Map<string, CachedData<FinancialMetrics>>();
 const individualIndicatorCache = new Map<string, CachedData<any>>();
+const newsSentimentCache = new Map<string, CachedData<NewsSentiment>>();
 
 // Request deduplication: prevents parallel duplicate API calls
 const inflightRequests = new Map<string, Promise<any>>();
@@ -411,4 +419,174 @@ export async function fetchTechnicalIndicators(
 
   console.log(`✅ Fetched technical indicators for ${upperSymbol}`);
   return result;
+}
+
+/**
+ * Simple sentiment analysis based on keywords
+ * For MVP - can be enhanced with ML/LLM later
+ */
+function analyzeSentiment(text: string): { sentiment: 'positive' | 'negative' | 'neutral', score: number } {
+  const positiveWords = ['surge', 'gain', 'profit', 'growth', 'bullish', 'strong', 'beat', 'exceed', 'positive', 'up', 'rise', 'high', 'buy', 'upgrade'];
+  const negativeWords = ['loss', 'decline', 'weak', 'bearish', 'miss', 'below', 'negative', 'down', 'fall', 'low', 'sell', 'downgrade', 'concern'];
+  
+  const lowerText = text.toLowerCase();
+  let score = 0;
+  
+  positiveWords.forEach(word => {
+    if (lowerText.includes(word)) score += 1;
+  });
+  
+  negativeWords.forEach(word => {
+    if (lowerText.includes(word)) score -= 1;
+  });
+  
+  // Normalize score to -1 to 1 range
+  const normalizedScore = Math.max(-1, Math.min(1, score / 5));
+  
+  let sentiment: 'positive' | 'negative' | 'neutral';
+  if (normalizedScore > 0.2) sentiment = 'positive';
+  else if (normalizedScore < -0.2) sentiment = 'negative';
+  else sentiment = 'neutral';
+  
+  return { sentiment, score: normalizedScore };
+}
+
+/**
+ * Fetches recent news and analyzes sentiment for a stock
+ */
+export async function fetchNewsSentiment(symbol: string, limit: number = 10): Promise<NewsSentiment> {
+  const upperSymbol = symbol.toUpperCase();
+  const cacheKey = `${upperSymbol}-news`;
+  
+  // Check cache first (15 min TTL for news)
+  const cached = newsSentimentCache.get(cacheKey);
+  if (cached) {
+    const age = Date.now() - cached.cachedAt;
+    if (age < NEWS_CACHE_TTL_MS) {
+      console.log(`✅ Cache hit for ${upperSymbol} news sentiment`);
+      return cached.data;
+    }
+  }
+  
+  if (!NEWS_API_KEY) {
+    throw new Error('NEWS_API_KEY not set in environment variables');
+  }
+  
+  try {
+    console.log(`📰 Fetching news for ${upperSymbol}...`);
+    
+    // Fetch news from NewsAPI
+    const response = await axios.get<NewsAPIResponse>(`${NEWS_API_URL}/everything`, {
+      params: {
+        q: `${upperSymbol} stock OR ${upperSymbol} shares`,
+        language: 'en',
+        sortBy: 'publishedAt',
+        pageSize: limit,
+        apiKey: NEWS_API_KEY
+      },
+      timeout: 10000
+    });
+    
+    if (response.data.status !== 'ok') {
+      throw new Error('News API returned error status');
+    }
+    
+    // Parse and analyze articles
+    const articles: NewsArticle[] = response.data.articles
+      .filter(article => article.title && article.description)
+      .map(article => {
+        const text = `${article.title} ${article.description || ''}`;
+        const { sentiment, score } = analyzeSentiment(text);
+        
+        return {
+          title: article.title,
+          description: article.description || '',
+          source: article.source.name,
+          url: article.url,
+          publishedAt: article.publishedAt,
+          sentiment,
+          sentimentScore: score
+        };
+      });
+    
+    // Calculate overall sentiment
+    const totalScore = articles.reduce((sum, article) => sum + (article.sentimentScore || 0), 0);
+    const avgScore = articles.length > 0 ? totalScore / articles.length : 0;
+    
+    let overallSentiment: 'positive' | 'negative' | 'neutral';
+    if (avgScore > 0.2) overallSentiment = 'positive';
+    else if (avgScore < -0.2) overallSentiment = 'negative';
+    else overallSentiment = 'neutral';
+    
+    const result: NewsSentiment = {
+      symbol: upperSymbol,
+      articles,
+      overallSentiment,
+      sentimentScore: avgScore,
+      articleCount: articles.length,
+      timestamp: new Date().toISOString()
+    };
+    
+    // Cache the result
+    newsSentimentCache.set(cacheKey, {
+      data: result,
+      cachedAt: Date.now()
+    });
+    
+    console.log(`✅ Fetched ${articles.length} articles for ${upperSymbol} (sentiment: ${overallSentiment})`);
+    return result;
+    
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      throw new Error(`News API Error: ${axiosError.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Compares multiple stocks side-by-side
+ */
+export async function compareStocks(symbols: string[]): Promise<StockComparison> {
+  const upperSymbols = symbols.map(s => s.toUpperCase());
+  
+  console.log(`📊 Comparing stocks: ${upperSymbols.join(', ')}...`);
+  
+  const metrics: StockComparison['metrics'] = {};
+  
+  // Fetch data for each stock (in parallel for speed)
+  await Promise.all(
+    upperSymbols.map(async (symbol) => {
+      try {
+        // Fetch quote and metrics in parallel
+        const [quote, financial] = await Promise.all([
+          fetchStockQuote(symbol),
+          fetchFinancialMetrics(symbol)
+        ]);
+        
+        metrics[symbol] = {
+          price: quote.price,
+          change: quote.change,
+          changePercent: quote.changePercent,
+          marketCap: financial.marketCap,
+          peRatio: financial.peRatio,
+          eps: financial.eps,
+          profitMargin: financial.profitMargin,
+          beta: financial.beta
+        };
+      } catch (error) {
+        console.warn(`⚠️  Failed to fetch data for ${symbol}, skipping...`);
+        // Continue with other symbols
+      }
+    })
+  );
+  
+  console.log(`✅ Compared ${Object.keys(metrics).length} stocks successfully`);
+  
+  return {
+    symbols: upperSymbols,
+    metrics,
+    timestamp: new Date().toISOString()
+  };
 }

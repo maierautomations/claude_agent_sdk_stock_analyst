@@ -165,3 +165,56 @@ export interface CachedData<T> {
   cachedAt: number;
 }
 
+// News Sentiment Types
+export interface NewsArticle {
+  title: string;
+  description: string;
+  source: string;
+  url: string;
+  publishedAt: string;
+  sentiment?: 'positive' | 'negative' | 'neutral';
+  sentimentScore?: number; // -1 to 1
+}
+
+export interface NewsSentiment {
+  symbol: string;
+  articles: NewsArticle[];
+  overallSentiment: 'positive' | 'negative' | 'neutral';
+  sentimentScore: number; // -1 to 1
+  articleCount: number;
+  timestamp: string;
+}
+
+export interface NewsAPIResponse {
+  status: string;
+  totalResults: number;
+  articles: Array<{
+    source: { id: string | null; name: string };
+    author: string | null;
+    title: string;
+    description: string | null;
+    url: string;
+    urlToImage: string | null;
+    publishedAt: string;
+    content: string | null;
+  }>;
+}
+
+// Stock Comparison Types
+export interface StockComparison {
+  symbols: string[];
+  metrics: {
+    [symbol: string]: {
+      price: number;
+      change: number;
+      changePercent: number;
+      marketCap: number;
+      peRatio: number | null;
+      eps: number | null;
+      profitMargin: number | null;
+      beta: number | null;
+    };
+  };
+  timestamp: string;
+}
+

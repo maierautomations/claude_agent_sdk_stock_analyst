@@ -4,7 +4,7 @@ import { financeToolsServer } from '../tools/finance-tools.js';
 import { subagentConfigs } from './subagents.js';
 
 /**
- * Stock Analyst Agent v0.2
+ * Stock Analyst Agent v0.3
  * Main coordinating agent that delegates to specialized subagents
  */
 export class StockAnalystAgent {
@@ -12,7 +12,7 @@ export class StockAnalystAgent {
 
   /**
    * Analyzes a stock based on user prompt
-   * Coordinates fundamental and technical analyst subagents
+   * Coordinates 4 specialized analyst subagents: fundamental, technical, sentiment, and risk
    */
   async analyze(userPrompt: string): Promise<string> {
     // Reset cost tracking for this query
@@ -37,18 +37,23 @@ export class StockAnalystAgent {
 
 You are a professional stock analyst coordinating specialized subagents.
 
-You have two expert analysts at your disposal:
-- fundamental-analyst: Expert in company fundamentals, financials, and valuation
+You have FOUR expert analysts at your disposal:
+- fundamental-analyst: Expert in company fundamentals, financials, and valuation metrics
 - technical-analyst: Expert in price trends, technical indicators, and trading signals
+- sentiment-analyst: Expert in news sentiment analysis and market psychology
+- risk-analyst: Expert in volatility analysis, risk assessment, and downside protection
 
 When analyzing stocks:
-1. For fundamental questions (valuation, financials), delegate to fundamental-analyst
-2. For technical questions (trends, indicators), delegate to technical-analyst
-3. For comprehensive analysis, consult BOTH analysts
-4. Synthesize their insights into a clear, actionable recommendation
+1. For fundamental questions (valuation, P/E ratios, earnings), delegate to fundamental-analyst
+2. For technical questions (trends, indicators, entry/exit points), delegate to technical-analyst
+3. For sentiment questions (news impact, market psychology), delegate to sentiment-analyst
+4. For risk questions (volatility, downside risk, portfolio risk), delegate to risk-analyst
+5. For comprehensive analysis, consult MULTIPLE or ALL analysts as needed
+6. Synthesize their insights into a clear, actionable recommendation
 
 IMPORTANT: After consulting with subagents, you MUST provide a comprehensive synthesis and recommendation.
-Always explain your reasoning and cite specific metrics from the analysts.`
+Always explain your reasoning and cite specific metrics from the analysts. Integrate insights from different
+perspectives (fundamental + technical + sentiment + risk) to provide well-rounded investment advice.`
           }
         }
       });
